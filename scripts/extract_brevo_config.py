@@ -21,14 +21,26 @@ KEY = os.environ.get("BREVO_API_KEY")
 
 # Attributs contact dont on veut la répartition des valeurs (agrégée).
 AGG_ATTRIBUTES = [
-    "CIBLE", "SOUS_CIBLE", "REGION", "DEPARTEMENT", "NIVEAU_FORMATION",
-    "SOURCE", "TELECHARGEMENT_RESSOURCE", "CANAL_ORIGINE",
-    "CONSENT_MARKETING", "PIXEL_TRACKING_CONSENT",
+    "CIBLE", "SOUS_CIBLE", "REGION_FRANCE", "DEPARTEMENT",
+    "SOURCE", "TELECHARGEMENT_RESSOURCE",
+    "OPT_IN", "DOUBLE_OPT-IN", "_PIXEL_TRACKING_CONSENT",
+    "_PIXEL_TRACKING_CONSENT_SOURCE", "TEST_FONCTIONNEL", "UTM_SOURCE", "UTM_MEDIUM",
 ]
-# Attributs dont on veut seulement savoir s'ils sont renseignés.
+# Attributs dont on veut seulement savoir s'ils sont renseignés (jamais leur valeur).
 FILLED_ATTRIBUTES = [
-    "POSTE", "ETABLISSEMENT", "PIXEL_TRACKING_CONSENT_DATE",
+    "JOB_TITLE", "COMPANY_NAME", "MESSAGE", "SMS", "LINKEDIN",
+    "_PIXEL_TRACKING_CONSENT_DATE", "_LAST_EMAIL_OPEN_DATE",
     "UTM_SOURCE", "UTM_MEDIUM", "UTM_CAMPAIGN",
+]
+# Croisements utiles (agrégés) : attribut A x attribut B.
+CROSSES = [
+    ("CIBLE", "REGION_FRANCE"),
+    ("SOURCE", "OPT_IN"),
+    ("SOURCE", "DOUBLE_OPT-IN"),
+    ("OPT_IN", "_BLACKLISTED"),
+    ("DOUBLE_OPT-IN", "_BLACKLISTED"),
+    ("_LISTS", "OPT_IN"),
+    ("_LISTS", "_BLACKLISTED"),
 ]
 
 
@@ -38,6 +50,8 @@ def get(path, params=None):
         url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
     req = urllib.request.Request(url, method="GET", headers={
         "api-key": KEY, "accept": "application/json",
+        # Sans User-Agent explicite, Cloudflare bloque certains endpoints (erreur 1010).
+        "user-agent": "cepac-brevo-audit/1.0",
     })
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -100,7 +114,8 @@ def main():
     companies = get("/companies", {"limit": 1})
     out["companies_count"] = companies.get("pager", {}).get("total", companies.get("_error"))
 
-    campaigns, err = paginate("/emailCampaigns", "campaigns", extra={"excludeHtmlContent": "false"})
+    campaigns, err = paginate("/emailCampaigns", "campaigns",
+                              extra={"excludeHtmlContent": "false", "statistics": "globalStats"})
     out["email_campaigns"] = err or [
         {
             "name": c.get("name"), "status": c.get("status"), "sentDate": c.get("sentDate"),
@@ -138,19 +153,33 @@ def main():
     agg = {a: Counter() for a in AGG_ATTRIBUTES}
     filled = Counter()
     per_list = Counter()
+    list_combos = Counter()
+    crosses = {f"{a} x {b}": Counter() for a, b in CROSSES}
+    created_by_month = Counter()
     blacklisted = 0
+
+    def labelled(attrs, a):
+        labels = enum_labels.get(a) or {}
+        return [labels.get(v, v) for v in values_of(attrs.get(a))] or ["(vide)"]
+
     for c in contacts:
-        attrs = c.get("attributes") or {}
+        attrs = dict(c.get("attributes") or {})
+        attrs["_BLACKLISTED"] = "oui" if c.get("emailBlacklisted") else "non"
+        attrs["_LISTS"] = "+".join(str(i) for i in sorted(c.get("listIds") or [])) or "aucune"
         for a in AGG_ATTRIBUTES:
-            labels = enum_labels.get(a) or {}
-            vals = [labels.get(v, v) for v in values_of(attrs.get(a))]
-            for v in vals or ["(vide)"]:
+            for v in labelled(attrs, a):
                 agg[a][v] += 1
         for a in FILLED_ATTRIBUTES:
             if values_of(attrs.get(a)):
                 filled[a] += 1
+        for a, b in CROSSES:
+            for va in labelled(attrs, a):
+                for vb in labelled(attrs, b):
+                    crosses[f"{a} x {b}"][f"{va} | {vb}"] += 1
         for lid in c.get("listIds") or []:
             per_list[lid] += 1
+        list_combos[attrs["_LISTS"]] += 1
+        created_by_month[(c.get("createdAt") or "")[:7] or "(inconnu)"] += 1
         if c.get("emailBlacklisted"):
             blacklisted += 1
     out["contacts_aggregates"] = {
@@ -160,6 +189,9 @@ def main():
         "by_attribute": {a: dict(v.most_common()) for a, v in agg.items()},
         "filled_count": dict(filled),
         "by_list_id": dict(per_list),
+        "by_list_combination": dict(list_combos),
+        "created_by_month": dict(sorted(created_by_month.items())),
+        "crosses": {k: dict(v.most_common()) for k, v in crosses.items()},
     }
 
     json.dump(out, sys.stdout, ensure_ascii=False, indent=2, default=str)
