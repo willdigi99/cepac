@@ -1,0 +1,3 @@
+brevo_snapshot*.json
+.env
+__pycache__/
