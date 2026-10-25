@@ -4,7 +4,7 @@
 |---|---|
 | **Client** | CEPAC |
 | **Rédaction** | Digitalised — William Borges (consultant CRM / chef de projet) |
-| **Version** | v1.0 — 24/09/2026 |
+| **Version** | v1.1 — 25/10/2026 (détail des prescripteurs, §3.4) · v1.0 — 24/09/2026 |
 | **Outil** | Brevo (ex-Sendinblue) |
 | **Source des constats** | Extraction du compte Brevo en lecture seule, le 24/09/2026 (API Brevo v3, script `scripts/extract_brevo_config.py`) |
 
@@ -41,7 +41,7 @@
 | ✅ | Objet Entreprise en place : **732 fiches**, domaine, typologie sur 25 métiers |
 | ⚠️ | **Localisation quasi absente** : région renseignée pour 72 contacts (4,7 %), département pour aucun. Les clubs régionaux ne sont pas activables en l'état |
 | ⚠️ | Pas de liste unique « Base Cepac », mais deux listes. **Aucun segment par cible ni de consentement.** 12 segments régionaux, dont 5 sur des régions à 0 contact, alors que l'Île-de-France (29 contacts, 1ʳᵉ région) n'en a pas |
-| ⚠️ | `DEPARTEMENT` est de type nombre. `TELECHARGEMENT_RESSOURCE` est en texte libre. `DOUBLE_OPT-IN` n'est jamais renseigné. `SOUS_CIBLE` n'est pas paramétré |
+| ⚠️ | `DEPARTEMENT` est de type nombre. `TELECHARGEMENT_RESSOURCE` est en texte libre. `DOUBLE_OPT-IN` n'est jamais renseigné. `SOUS_CIBLE` n'est pas paramétré (valeurs prescripteurs définies le 25/10/2026, §3.4) |
 | ⚠️ | **Aucun UTM renseigné** sur les contacts |
 
 ---
@@ -140,7 +140,7 @@ flowchart LR
 | `EMAIL`, `PRENOM`, `NOM` | idem | Standard / texte | — | — | ✅ |
 | `POSTE` | `JOB_TITLE` (natif) | Texte | — | 1 | ⚠️ Donnée quasi absente |
 | `CIBLE` | `CIBLE` | **Choix multiple** | Exploitant, Installateur, Prescripteur, Institution / Presse, En formation | **1 168 (77 %)**. Aucun contact n'a plusieurs cibles | ✅ |
-| `SOUS_CIBLE` | `SOUS_CIBLE` | Catégorie | **Une seule valeur fictive : « sous cible 1 »** | 0 | ❌ À paramétrer |
+| `SOUS_CIBLE` | `SOUS_CIBLE` | Catégorie | **Une seule valeur fictive : « sous cible 1 »**. Valeurs cibles : Maître d'ouvrage, Promoteur, Bureau d'étude, Architecte, AMO (§3.4) | 0 | ⏳ À paramétrer |
 | `DEPARTEMENT` | `DEPARTEMENT` | **Nombre** | — | 0 | ❌ Type inadapté (01, 2A, 2B, 971…) |
 | `REGION` | `REGION_FRANCE` | **Choix multiple** | 13 régions métropolitaines + 5 DROM | **72 (4,7 %)** | ✅ Structure. ⚠️ Remplissage |
 | `ETABLISSEMENT` | — | — | — | — | ❌ Absent |
@@ -187,7 +187,35 @@ flowchart LR
 **Points d'attention**
 
 - La valeur « Administration » a pour clé technique `test` : c'est un résidu de paramétrage, à corriger si possible.
-- Plusieurs valeurs décrivent des **personnes** (Apprenti, Enseignant, Formateur, Architecte) et recoupent la future `SOUS_CIBLE`. **Recommandation** : s'en servir pour définir les valeurs de `SOUS_CIBLE` (par exemple, Prescripteur donne Architecte, Bureau d'étude, Économiste, Ingénieur conseil…), et garder côté Entreprise la typologie d'organisation.
+- Plusieurs valeurs décrivent des **personnes** (Apprenti, Enseignant, Formateur, Architecte) et recoupent `SOUS_CIBLE`. Les valeurs de `SOUS_CIBLE` pour les prescripteurs sont désormais fixées (§3.4). Garder côté Entreprise la typologie d'organisation, en harmonisant les libellés communs : « Maitrise d'ouvrage » (Entreprise) et « Maître d'ouvrage » (Contact) désignent le même métier.
+
+### 3.4 Évolution du 25/10/2026 : détail des prescripteurs
+
+**Demande** : à la demande de CEPAC (Vincent Teillet), Tribu remplace la valeur « Prescripteur » des formulaires WordPress (contact et téléchargement de ressources) par 5 choix plus précis : **Maître d'ouvrage, Promoteur, Bureau d'étude, Architecte, AMO**.
+
+**Choix retenu côté Brevo : deux niveaux, `CIBLE` puis `SOUS_CIBLE`.** On ne remplace pas « Prescripteur » dans `CIBLE`.
+
+| Choix du visiteur (formulaire) | `CIBLE` envoyée à Brevo | `SOUS_CIBLE` envoyée à Brevo |
+|---|---|---|
+| Maître d'ouvrage | Prescripteur | Maître d'ouvrage |
+| Promoteur | Prescripteur | Promoteur |
+| Bureau d'étude | Prescripteur | Bureau d'étude |
+| Architecte | Prescripteur | Architecte |
+| AMO | Prescripteur | AMO |
+| Installateur, Exploitant, Institution / Presse, En formation | inchangé | *(vide)* |
+
+**Pourquoi ce choix**
+- Les contacts déjà qualifiés « Prescripteur » restent valides. Aucune reprise de données n'est nécessaire : ils ont simplement une `SOUS_CIBLE` vide, à compléter au fil de l'eau (mise à jour de profil, nouveau téléchargement).
+- Le segment « tous les prescripteurs » reste une condition simple (`CIBLE contient Prescripteur`), et chaque métier a son propre segment.
+- C'est l'architecture prévue dès le départ : `SOUS_CIBLE` précise la cible.
+
+**Paramétrage Brevo à réaliser** (Digitalised)
+1. Contacts → Paramètres → Attributs → `SOUS_CIBLE` : remplacer la valeur fictive « sous cible 1 » par les 5 valeurs ci-dessus, libellés exacts. L'attribut n'est renseigné sur aucun contact : la modification est sans risque.
+2. Transmettre à Tribu les libellés exacts et, pour un envoi par API, l'identifiant numérique de chaque valeur (un attribut Catégorie peut attendre l'identifiant plutôt que le libellé selon l'intégration).
+3. Créer les segments `[Cible] Prescripteur` (`CIBLE contient Prescripteur`) et `[Sous-cible] <métier>` × 5 (`SOUS_CIBLE = <métier>`).
+4. Test de bout en bout avec Tribu : une soumission par métier depuis chaque formulaire, puis vérification de `CIBLE` et `SOUS_CIBLE` sur la fiche créée.
+
+**Point d'attention pour Tribu** : les libellés envoyés doivent être **strictement identiques** à ceux de Brevo (accents, apostrophe droite `'`, majuscules). Une valeur qui ne correspond pas n'est pas enregistrée ou crée un écart qui casse les segments.
 - 732 fiches pour 1 522 contacts, dont 244 ont un nom d'entreprise saisi. La méthode de création (domaine email ou nom saisi) est à confirmer, et **les fiches sur domaines génériques** (gmail.com, orange.fr, hotmail.fr, free.fr, wanadoo.fr, outlook.fr, laposte.net…) sont à contrôler et à supprimer.
 
 ---
@@ -475,7 +503,7 @@ Au moins une ressource a été téléchargée par **1 391 contacts**.
 | 12 | UTM | Renseignés | 0 | Tester avec Tribu | Haute |
 | 13 | `DOUBLE_OPT-IN` | Utilisé ou absent | Présent, jamais renseigné | L'affecter à la requalification ou le supprimer | Moyenne |
 | 14 | `TELECHARGEMENT_RESSOURCE` | Choix multiple | Texte, 18 combinaisons | Créer un Choix multiple (7 options), migrer, supprimer l'ancien | Moyenne |
-| 15 | `SOUS_CIBLE` | Paramétré | Une valeur fictive | Définir les valeurs à partir de `domaine_d_expertise` | Moyenne |
+| 15 | `SOUS_CIBLE` | Paramétré | Une valeur fictive | Créer les 5 valeurs prescripteurs (§3.4), puis les valeurs des autres cibles si besoin | Haute (formulaires Tribu en cours) |
 | 16 | `ETABLISSEMENT`, `NIVEAU_FORMATION` | Présents | Absents | Créer si collectés | Moyenne |
 | 17 | `CIBLE`, `REGION_FRANCE` | Catégorie | Choix multiple à valeurs figées | Conserver, avec la règle « une seule valeur » | Faible |
 | 18 | `POSTE` | Texte | `JOB_TITLE`, 1 renseigné | Mapper le champ Poste du formulaire sur `JOB_TITLE` | Faible |
@@ -497,7 +525,7 @@ Au moins une ressource a été téléchargée par **1 391 contacts**.
 | Option « Newsletter » dans `SOURCE` ? | **Oui** (6 contacts) |
 | Normalisation Entreprise par domaine | 732 fiches créées. Règle et exclusions à confirmer |
 | Import de la base historique AFPAC | La liste « Import AFPAC » contient la **base consolidée du site**. Il reste à confirmer si la base historique AFPAC (abonnés LinkedIn…) doit encore être importée |
-| `SOUS_CIBLE`, `ETABLISSEMENT`, `NIVEAU_FORMATION`, `DEPARTEMENT`, `REGION` | `REGION_FRANCE` ✅ ; `DEPARTEMENT` mal typé ; `SOUS_CIBLE` non paramétré ; `ETABLISSEMENT` et `NIVEAU_FORMATION` absents |
+| `SOUS_CIBLE`, `ETABLISSEMENT`, `NIVEAU_FORMATION`, `DEPARTEMENT`, `REGION` | `REGION_FRANCE` ✅ ; `DEPARTEMENT` mal typé ; `SOUS_CIBLE` : valeurs prescripteurs définies (§3.4), à paramétrer ; `ETABLISSEMENT` et `NIVEAU_FORMATION` absents |
 
 ### 11.2 Nouveaux points ouverts
 
@@ -516,7 +544,7 @@ Au moins une ressource a été téléchargée par **1 391 contacts**.
 | 4 | Créer les segments `[Consent]` | Digitalised | Sous 1 semaine |
 | 5 | Revoir le paramétrage du suivi des ouvertures | Digitalised | Sous 1 semaine |
 | 6 | Valider et lancer la campagne de requalification des soft opt-ins | CEPAC puis Digitalised | Sous 3 semaines |
-| 7 | Recréer `DEPARTEMENT`, convertir `TELECHARGEMENT_RESSOURCE`, paramétrer `SOUS_CIBLE` | Digitalised | Avant la mise en ligne du formulaire |
+| 7 | Paramétrer `SOUS_CIBLE` (5 valeurs prescripteurs, §3.4), recréer `DEPARTEMENT`, convertir `TELECHARGEMENT_RESSOURCE` | Digitalised | Avant la mise en ligne des formulaires Tribu |
 | 8 | Mettre en ligne le formulaire, tester les UTM et champs cachés | Tribu | Selon planning |
 | 9 | Fusionner les listes, créer les segments cibles et régions manquants | Digitalised | Sous 3 semaines |
 | 10 | Relever dans l'interface les segments (conditions), les formulaires et les workflows | Digitalised | Sous 2 semaines |
@@ -540,6 +568,8 @@ Ces règles permettent de faire évoluer la base sans casser la structure.
 2. Mettre à jour **en même temps** la liste déroulante du formulaire Tribu.
 3. Créer le segment `[Cible] <valeur>`.
 4. Mettre à jour ce document (§3 et §4).
+
+**Un choix du formulaire peut alimenter deux attributs** : un métier prescripteur renseigne `CIBLE = Prescripteur` et `SOUS_CIBLE = <métier>` (§3.4). Toute nouvelle valeur ajoutée à un menu déroulant WordPress doit avoir sa correspondance définie dans Brevo **avant** la mise en ligne.
 
 **Une seule valeur par contact** pour `CIBLE` et `REGION_FRANCE`. Le type Choix multiple en autorise plusieurs, mais les formulaires et imports n'en envoient qu'une.
 
